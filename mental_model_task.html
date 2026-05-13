@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Study - Interactive Whiteboard</title>
+    <style>
+        :root {
+            --bg-color: #f4f4f5;
+            --canvas-bg: #ffffff;
+            --border-color: #d4d4d8;
+            --active-color: #2563eb;
+            --text-color: #1f2937;
+        }
+
+        body {
+            margin: 0; padding: 0;
+            background-color: var(--bg-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex; flex-direction: column;
+            height: 100vh; overflow: hidden;
+        }
+
+        .toolbar {
+            display: flex; gap: 12px; padding: 15px 25px;
+            background: var(--canvas-bg);
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            align-items: center; z-index: 10;
+        }
+
+        .tool-btn {
+            padding: 8px 16px; border: 1px solid var(--border-color);
+            background: var(--canvas-bg); border-radius: 6px;
+            cursor: pointer; font-size: 14px; font-weight: 500;
+            color: var(--text-color); transition: all 0.2s ease;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .tool-btn:hover { background: #f3f4f6; }
+        .tool-btn.active { background: var(--active-color); color: white; border-color: var(--active-color); }
+
+        select.template-select {
+            padding: 8px 12px; border-radius: 6px;
+            border: 1px solid var(--border-color); background: #fff;
+            font-size: 14px; margin-left: 20px; font-weight: 600;
+        }
+
+        .clear-btn { margin-left: auto; color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
+
+        .canvas-stack {
+            flex-grow: 1; position: relative;
+            background-color: #e5e7eb;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        /* The canvases are absolutely positioned relative to the center of the stack */
+        .canvas-wrapper {
+            position: relative;
+            width: 1200px;
+            height: 750px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        #canvas-template { position: absolute; top: 0; left: 0; z-index: 1; background: white; }
+        #canvas-ink { position: absolute; top: 0; left: 0; z-index: 2; background: transparent; cursor: crosshair; }
+
+        .text-input-overlay {
+            position: absolute; display: none; background: transparent;
+            border: 1px dashed var(--active-color); font-size: 16px;
+            font-family: monospace; padding: 2px; outline: none; z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <span style="font-weight: 600; color: #1e293b; padding-right: 15px; border-right: 1px solid #ccc;">Interview Whiteboard v6</span>
+        
+        <button class="tool-btn active" id="btn-pen" onclick="setTool('pen')">✏️ Pen</button>
+        <button class="tool-btn" id="btn-eraser" onclick="setTool('eraser')">🧽 Eraser</button>
+        <button class="tool-btn" id="btn-text" onclick="setTool('text')">🔤 Text</button>
+
+        <select class="template-select" id="templateSelector" onchange="loadTemplate()">
+            <option value="blank">-- Select Task --</option>
+            <option value="t1">Task 1: Global Architecture</option>
+            <option value="t2">Task 2: Protocol Handshake</option>
+            <option value="t3">Task 3: Exception Handling</option>
+        </select>
+
+        <button class="tool-btn clear-btn" onclick="clearInk()">🗑️ Clear Drawing</button>
+    </div>
+
+    <div class="canvas-stack" id="container">
+        <div class="canvas-wrapper">
+            <canvas id="canvas-template" width="1200" height="750"></canvas>
+            <canvas id="canvas-ink" width="1200" height="750"></canvas>
+            <input type="text" class="text-input-overlay" id="textInput" placeholder="Type and press Enter...">
+        </div>
+    </div>
+
+    <script>
+        const inkCanvas = document.getElementById('canvas-ink');
+        const tempCanvas = document.getElementById('canvas-template');
+        const inkCtx = inkCanvas.getContext('2d');
+        const tempCtx = tempCanvas.getContext('2d');
+        const textInput = document.getElementById('textInput');
+        
+        let currentTool = 'pen', isDrawing = false;
+        let lastX = 0, lastY = 0;
+
+        function setTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-' + tool).classList.add('active');
+            inkCanvas.style.cursor = tool === 'text' ? 'text' : 'crosshair';
+            if (tool !== 'text') hideTextInput();
+        }
+
+        function clearInk() { inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height); }
+
+        // Precision Math: Calculates exact position inside the canvas wrapper
+        function getMousePos(e) {
+            const rect = inkCanvas.getBoundingClientRect();
+            const scaleX = inkCanvas.width / rect.width;
+            const scaleY = inkCanvas.height / rect.height;
+            
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY,
+                cssX: (e.clientX - rect.left),
+                cssY: (e.clientY - rect.top)
+            };
+        }
+
+        function drawBox(ctx, x, y, w, h, label, sublabel="", color="#475569", fill="#f8fafc") {
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([]);
+            ctx.strokeRect(x, y, w, h); ctx.fillStyle = fill; ctx.fillRect(x, y, w, h);
+            ctx.fillStyle = "#1e293b"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
+            ctx.fillText(label, x + w/2, y + h/2 + (sublabel ? -5 : 5));
+            if(sublabel) {
+                ctx.font = "italic 14px Arial"; ctx.fillStyle = "#64748b";
+                ctx.fillText(sublabel, x + w/2, y + h/2 + 20);
+            }
+        }
+
+        function loadTemplate() {
+            const task = document.getElementById('templateSelector').value;
+            tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+            inkCtx.clearRect(0, 0, inkCanvas.width, inkCanvas.height);
+            
+            if (task === "t1") {
+                tempCtx.fillStyle = "#1e293b"; tempCtx.textAlign = "center";
+                tempCtx.font = "30px Arial"; tempCtx.fillText("☺", 100, 310); tempCtx.font = "16px Arial"; tempCtx.fillText("Alice", 100, 340);
+                tempCtx.font = "30px Arial"; tempCtx.fillText("☺", 1100, 310); tempCtx.font = "16px Arial"; tempCtx.fillText("Bob", 1100, 340);
+                
+                drawBox(tempCtx, 180, 280, 120, 80, "Alice's MUA");
+                drawBox(tempCtx, 380, 280, 160, 80, "Sending Server");
+                drawBox(tempCtx, 660, 280, 160, 80, "Receiving Server");
+                drawBox(tempCtx, 900, 280, 120, 80, "Bob's MUA");
+                
+                tempCtx.fillStyle = "#4b5563"; tempCtx.font = "italic 16px Arial";
+                tempCtx.fillText("Task: Draw the paths connecting these entities. Explicitly label the protocols used for each connection.", 600, 450);
+
+            } else if (task === "t2") {
+                drawBox(tempCtx, 100, 300, 200, 100, "User Email Client", "(Configured: Port 587)");
+                drawBox(tempCtx, 900, 300, 200, 100, "University Mail Server");
+                tempCtx.setLineDash([10, 5]); tempCtx.beginPath(); tempCtx.moveTo(600, 50); tempCtx.lineTo(600, 700); tempCtx.stroke();
+                tempCtx.fillStyle = "#dc2626"; tempCtx.font = "bold 16px Arial"; tempCtx.textAlign = "center";
+                tempCtx.fillText("PUBLIC INTERNET BOUNDARY", 600, 40);
+                
+                tempCtx.fillStyle = "#4b5563"; tempCtx.font = "italic 16px Arial";
+                tempCtx.fillText("Task: Draw the sequence of the connection. Detail the cryptographic state at each step.", 600, 680);
+
+            } else if (task === "t3") {
+                drawBox(tempCtx, 50, 50, 220, 100, "User at Coffee Shop");
+                drawBox(tempCtx, 450, 50, 220, 100, "Unknown Network Intercept", "(?)", "#ca8a04", "#fefce8");
+                drawBox(tempCtx, 850, 50, 300, 150, "SECURITY ALERT", "SSL/Certificate Mismatch", "#dc2626", "#fef2f2");
+                
+                tempCtx.fillStyle = "#4b5563"; tempCtx.font = "italic 16px Arial"; tempCtx.textAlign = "center";
+                tempCtx.fillText("Task: Identify the potential causes for this alert, then map the workflow of what happens next.", 600, 300);
+            }
+        }
+
+        inkCanvas.addEventListener('mousedown', (e) => {
+            const pos = getMousePos(e);
+            if (currentTool === 'text') { showTextInput(pos.cssX, pos.cssY, pos.x, pos.y); return; }
+            isDrawing = true; [lastX, lastY] = [pos.x, pos.y];
+        });
+
+        inkCanvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing || currentTool === 'text') return;
+            const pos = getMousePos(e);
+            inkCtx.beginPath(); inkCtx.moveTo(lastX, lastY); inkCtx.lineTo(pos.x, pos.y);
+            if (currentTool === 'pen') {
+                inkCtx.strokeStyle = '#1e293b'; inkCtx.lineWidth = 2; inkCtx.lineCap = 'round'; inkCtx.lineJoin = 'round'; inkCtx.globalCompositeOperation = "source-over";
+            } else {
+                inkCtx.globalCompositeOperation = "destination-out"; inkCtx.lineWidth = 30; inkCtx.lineCap = 'round'; inkCtx.lineJoin = 'round';
+            }
+            inkCtx.stroke(); [lastX, lastY] = [pos.x, pos.y];
+        });
+
+        inkCanvas.addEventListener('mouseup', () => isDrawing = false);
+        inkCanvas.addEventListener('mouseout', () => isDrawing = false);
+
+        let tpos = { x: 0, y: 0 };
+        function showTextInput(cssX, cssY, canvasX, canvasY) {
+            tpos = { x: canvasX, y: canvasY }; textInput.style.display = 'block';
+            textInput.style.left = cssX + 'px'; textInput.style.top = (cssY - 10) + 'px'; // Center text input slightly over click
+            textInput.value = ''; textInput.focus();
+        }
+        function hideTextInput() { textInput.style.display = 'none'; }
+        textInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (textInput.value.trim() !== '') {
+                    inkCtx.font = '16px monospace'; inkCtx.fillStyle = '#1e293b'; inkCtx.textAlign = 'left'; inkCtx.globalCompositeOperation = "source-over";
+                    inkCtx.fillText(textInput.value, tpos.x, tpos.y + 6); 
+                }
+                hideTextInput();
+            } else if (e.key === 'Escape') {
+                hideTextInput();
+            }
+        });
+    </script>
+</body>
+</html>
